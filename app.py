@@ -1,5 +1,6 @@
 import streamlit as st
 import matplotlib.pyplot as plt
+import numpy as np
 
 from utils.lector_excel import cargar_proyecto
 
@@ -1297,6 +1298,272 @@ if st.button("🚀 Ejecutar análisis integral"):
         st.write("✅", texto)
 
     st.success("Motor de reglas ejecutado correctamente.")
+
+    # ======================================================
+    # PANEL EJECUTIVO SAVI
+    # ======================================================
+
+    st.divider()
+
+    st.header("📊 Panel Ejecutivo SAVI")
+
+    st.info(
+    """
+    Los siguientes indicadores integran los resultados obtenidos por los módulos
+    matemático, meteorológico, geotécnico, logístico y económico del sistema SAVI.
+    El objetivo es identificar visualmente los sectores donde convergen las
+    condiciones más críticas del corredor vial. 
+    """
+    )
+
+    # ======================================================
+    # KPIs
+    # ======================================================
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+
+        riesgo_max = isd["Riesgo"].iloc[
+            isd["ISD"].idxmax()
+        ]
+
+        st.metric(
+            "Riesgo máximo",
+            riesgo_max
+        )
+
+    with col2:
+
+        st.metric(
+            "Velocidad mínima",
+            f"{logistica['velocidad_minima']:.1f} km/h"
+        )
+
+    with col3:
+
+        st.metric(
+            "Costo acumulado",
+            f"{costos['costo_total_acumulado']:.0f}"
+        )
+
+    with col4:
+
+        st.metric(
+            "Tiempo despeje",
+            f"{sensores['tiempo_despeje_min']:.1f} min"
+        )
+
+    # ======================================================
+    # Preparación de datos
+    # ======================================================
+
+    pk = sensores["tabla"]["PK"]
+
+    pendiente = abs(
+        sensores["tabla"]["Inclinación"]
+    )
+
+    humedad = sensores["tabla"]["Humedad relativa"]
+
+    velocidad = logistica["tabla"]["Velocidad promedio"]
+
+    costo = costos["tabla"]["Costo total estimado"]
+
+    isd_interp = np.interp(
+
+        pk,
+
+        (
+            isd["PK Inicio"]
+            +
+            isd["PK Fin"]
+        ) / 2,
+
+        isd["ISD"]
+
+    )
+
+    # ======================================================
+    # Normalización
+    # ======================================================
+
+    def normalizar(x):
+
+        return (
+            x - x.min()
+        ) / (
+            x.max() - x.min()
+        )
+
+    pendiente_n = normalizar(pendiente)
+
+    humedad_n = normalizar(humedad)
+
+    velocidad_n = normalizar(velocidad)
+
+    costo_n = normalizar(costo)
+
+    isd_n = normalizar(isd_interp)
+
+    # ======================================================
+    # Gráfica integrada
+    # ======================================================
+
+    fig, ax = plt.subplots(figsize=(12,5))
+
+    ax.plot(
+        pk,
+        pendiente_n,
+        linewidth=2,
+        label="Pendiente"
+    )
+
+    ax.plot(
+        pk,
+        humedad_n,
+        linewidth=2,
+        label="Humedad"
+    )
+
+    ax.plot(
+        pk,
+        isd_n,
+        linewidth=3,
+        label="ISD"
+    )
+
+    ax.plot(
+        pk,
+        velocidad_n,
+        linewidth=2,
+        label="Velocidad"
+    )
+
+    ax.plot(
+        pk,
+        costo_n,
+        linewidth=2,
+        label="Costo"
+    )
+
+    # ======================================================
+    # Tramo crítico
+    # ======================================================
+
+    criticidad = (
+        pendiente_n
+        + humedad_n
+        + isd_n
+        + costo_n
+        - velocidad_n
+    )
+
+    pk_critico = pk.iloc[
+        criticidad.argmax()
+    ]
+
+    ax.axvspan(
+
+        pk_critico-1,
+
+        pk_critico+1,
+
+        alpha=0.20,
+
+        label="Zona crítica"
+
+    )
+
+    ax.set_title(
+        "Convergencia de variables críticas del corredor"
+    )
+
+    ax.set_xlabel(
+        "PK (km)"
+    )
+
+    ax.set_ylabel(
+        "Variables normalizadas"
+    )
+
+    ax.grid(True)
+
+    ax.legend()
+
+    st.pyplot(fig)
+
+    # ======================================================
+    # Índice de criticidad
+    # ======================================================
+
+    st.subheader("🔴 Índice de criticidad del corredor")
+
+    fig2, ax2 = plt.subplots(figsize=(12,2.5))
+
+    ax2.fill_between(
+
+        pk,
+
+        criticidad,
+
+        alpha=0.6
+
+    )
+
+    ax2.set_xlabel("PK")
+
+    ax2.set_ylabel("Índice")
+
+    ax2.grid(True)
+
+    st.pyplot(fig2)
+
+    # ======================================================
+    # Hallazgos automáticos
+    # ======================================================
+
+    st.subheader("📋 Hallazgos automáticos")
+
+    velocidad_reduccion = (
+
+        (
+            logistica["velocidad_promedio"]
+            -
+            logistica["velocidad_minima"]
+
+        )
+
+        /
+
+        logistica["velocidad_promedio"]
+
+    )*100
+
+    hallazgos = [
+
+        f"El tramo más crítico del corredor se localiza aproximadamente alrededor del PK {pk_critico:.1f}, donde convergen elevadas pendientes, alta humedad, mayor susceptibilidad a deslizamientos y aumento del costo de construcción.",
+
+        f"La velocidad promedio disminuye aproximadamente un {velocidad_reduccion:.1f}% respecto al promedio del corredor, indicando un posible cuello de botella logístico.",
+
+        f"El mayor costo del proyecto se registra cerca del PK {costos['pk_costo_maximo']:.1f}.",
+
+        f"El ISD alcanza la categoría {riesgo_max} en el sector de mayor criticidad.",
+
+    ]
+
+    if humedad.max()>100:
+
+        hallazgos.append(
+
+            "Se identificaron registros de humedad relativa superiores al 100%, lo que sugiere posibles inconsistencias de calibración o captura de datos en algunos sensores."
+
+        )
+
+    for h in hallazgos:
+
+        st.write("✔",h)
+
 
     # ======================================================
     # Recomendaciones
